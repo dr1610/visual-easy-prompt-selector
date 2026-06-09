@@ -1,0 +1,17 @@
+﻿{
+  "esp_paths": [
+    "../sdweb-easy-prompt-selector"
+  ],
+  "append_separator": ", ",
+  "default_insert_target": "prompt",
+  "enable_txt2img": true,
+  "enable_img2img": true,
+  "enable_category_tree": true,
+  "enable_tag_filter": true,
+  "enable_image_preview": true,
+  "enable_multi_select": false,
+  "avoid_duplicate_insert": true,
+  "thumbnail_size": 160,
+  "auto_insert_negative": false
+}
+
