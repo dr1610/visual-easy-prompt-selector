@@ -66,7 +66,7 @@ def load_json(path: Path, fallback: Any) -> Any:
     try:
         if not path.exists():
             return fallback
-        return json.loads(path.read_text(encoding="utf-8"))
+        return json.loads(path.read_text(encoding="utf-8-sig"))
     except Exception as exc:
         log(f"failed to load {path.name}: {exc}")
         return fallback
@@ -167,7 +167,7 @@ def load_eps_items(config: dict[str, Any]) -> list[dict[str, str]]:
 
     for path in yaml_files([str(p) for p in eps_paths]):
         try:
-            data = yaml.safe_load(path.read_text(encoding="utf-8"))
+            data = yaml.safe_load(path.read_text(encoding="utf-8-sig"))
             if data is None:
                 continue
             before = len(items)
@@ -224,7 +224,7 @@ def load_image_mapping() -> dict[str, str]:
         for mapping_name in IMAGE_MAPPING_NAMES:
             for path in PREVIEWS_DIR.rglob(mapping_name):
                 try:
-                    loaded = json.loads(path.read_text(encoding="utf-8"))
+                    loaded = json.loads(path.read_text(encoding="utf-8-sig"))
                 except Exception as exc:
                     log(f"failed to load image mapping {path}: {exc}")
                     continue
@@ -648,4 +648,5 @@ class Script(scripts.Script):
 
     def show(self, is_img2img):
         return False
+
 
