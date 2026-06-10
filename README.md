@@ -1,25 +1,98 @@
-﻿# Visual Easy Prompt Selector
+[README.md](https://github.com/user-attachments/files/28814072/README.md)
+# Visual Easy Prompt Selector
 
-Visual Easy Prompt Selector is a Stable Diffusion WebUI Forge/ReForge/AUTOMATIC1111 extension that shows Easy Prompt Selector YAML entries as searchable image cards in the Extra Networks area.
+Visual Easy Prompt Selector is an extension for Stable Diffusion WebUI, Forge, and reForge. It displays Easy Prompt Selector YAML entries as searchable visual cards in the Extra Networks panel.
 
-The extension reads Easy Prompt Selector files in read-only mode. It does not edit ESP YAML files.
+The extension reads Easy Prompt Selector files in read-only mode. It does not edit your original YAML files.
 
-## Quick Start
+## Status
 
-1. Copy this folder into your WebUI `extensions` directory:
+Current test release: `v0.1-test2`
+
+This is still a test release. Please report issues with your WebUI type, browser, and a short description of what happened.
+
+## What It Does
+
+- Adds a `Visual EPS` tab to Extra Networks.
+- Reads `.yml` and `.yaml` files from Easy Prompt Selector folders.
+- Converts nested YAML entries into searchable prompt cards.
+- Inserts the selected prompt into the active prompt box.
+- Supports text search, category filtering, tag filtering, AND/OR search, and image/no-image filtering.
+- Supports optional preview images.
+- Stores local display names, tags, notes, prompt additions, and preview-image links in this extension folder.
+
+## Installation
+
+### Recommended: install from Git URL
+
+Use this method if you want WebUI's extension updater to work.
+
+1. Open WebUI.
+2. Go to `Extensions` > `Install from URL`.
+3. Paste this URL:
+
+```text
+https://github.com/dr1610/visual-easy-prompt-selector.git
+```
+
+4. Click install.
+5. Click `Apply and quit`.
+6. Restart WebUI.
+
+After this, future updates can be installed from:
+
+```text
+Extensions > Installed > Check for updates > Apply and quit
+```
+
+### ZIP/manual install
+
+Manual install also works, but WebUI's update button will not update the extension automatically.
+
+1. Download the ZIP or copy the folder.
+2. Put it here:
 
 ```text
 stable-diffusion-webui/extensions/visual-easy-prompt-selector
 ```
 
-2. Restart WebUI.
-3. Open the Extra Networks area and select the `Visual ESP` tab.
+3. Restart WebUI.
 
-The package includes `sample_esp`, so the tab can open even when Easy Prompt Selector is not installed yet.
+If you installed an older ZIP test version, delete the old `visual-easy-prompt-selector` folder before installing the new one.
 
-## First-Run Detection
+## Updating
 
-On startup, the extension tries to use a real Easy Prompt Selector install when it is found next to this extension:
+### If installed from Git URL
+
+1. Open `Extensions` > `Installed`.
+2. Click `Check for updates`.
+3. Click `Apply and quit`.
+4. Restart WebUI.
+5. Reload the browser page once.
+
+### If installed from ZIP
+
+1. Stop WebUI.
+2. Delete the old `extensions/visual-easy-prompt-selector` folder.
+3. Install the new version.
+4. Restart WebUI.
+5. Reload the browser page once.
+
+## reForge Note
+
+On reForge, after updating or on the first launch, Extra Networks may occasionally appear blank before the browser page is refreshed.
+
+If `Checkpoint`, `LoRA`, or `Visual EPS` appears blank:
+
+1. Reload the browser page.
+2. If it is still blank, press `Ctrl + F5`.
+3. If needed, restart WebUI once more.
+
+`v0.1-test2` reworks the Visual EPS tree rendering so Visual EPS tree errors should not affect other Extra Networks pages.
+
+## First Run
+
+The extension tries to detect Easy Prompt Selector folders next to this extension:
 
 ```text
 extensions/sdweb-easy-prompt-selector
@@ -27,9 +100,9 @@ extensions/sd-easy-prompt-selector
 extensions/easy-prompt-selector
 ```
 
-If one of those folders exists and `config.json` still points only to `sample_esp`, Visual ESP automatically uses the detected folder. If nothing is found, it falls back to the bundled sample files.
+If no Easy Prompt Selector folder is found, the bundled `sample_esp` folder is used so the tab can still open.
 
-To force a custom folder, edit `config.json`:
+To set a custom folder, edit `config.json`:
 
 ```json
 {
@@ -39,35 +112,19 @@ To force a custom folder, edit `config.json`:
 }
 ```
 
-Relative paths are resolved from the Visual ESP extension folder.
-
-## Features
-
-- Adds a `Visual ESP` Extra Networks tab.
-- Reads `.yml` and `.yaml` files from Easy Prompt Selector folders.
-- Turns nested YAML entries into searchable cards.
-- Inserts the selected ESP prompt into the active prompt box.
-- Supports category, tag, text, AND/OR, and image/no-image filters.
-- Supports optional preview images from `previews/`.
-- Keeps local display names, tags, notes, and prompt edits in `visual_esp_metadata.json`.
+Relative paths are resolved from the Visual EPS extension folder.
 
 ## Preview Images
 
-Preview images are optional. Put images under:
+Preview images are optional.
+
+Place images under:
 
 ```text
 previews/
 ```
 
-The recommended generated-image structure is:
-
-```text
-previews/imported/
-  image_mapping.json
-  example_prompt_image.png
-```
-
-`image_mapping.json` maps ESP prompt text to image filenames:
+You can map prompt text to image filenames with `image_mapping.json`:
 
 ```json
 {
@@ -76,23 +133,60 @@ previews/imported/
 }
 ```
 
-If a prompt does not have a preview image, the extension can use `previews/placeholder.png`.
+Recommended structure:
 
-## Files Written Locally
+```text
+previews/imported/
+  image_mapping.json
+  smile_example.png
+  long_hair_example.png
+```
 
-The extension writes only inside its own folder:
+If a prompt has no preview image, Visual EPS will show a normal card without a custom preview.
+
+## Files Written by This Extension
+
+Visual EPS writes only inside its own extension folder:
 
 - `config.json`
 - `visual_esp_metadata.json`
-- `previews/`
+- `previews/custom/`
 
-It does not modify Easy Prompt Selector, prompt YAML files, models, or other extensions.
+It does not modify:
+
+- Easy Prompt Selector YAML files
+- model files
+- LoRA files
+- other extensions
+- WebUI settings outside this extension
 
 ## Troubleshooting
 
-If the tab still shows only samples after installing Easy Prompt Selector, check `config.json`. If it contains a custom path, that custom setting is respected. Set it to your ESP folder or delete `config.json` and restart WebUI to regenerate it.
+### The tab only shows sample prompts
 
-After updating the extension JavaScript, restart WebUI and hard-refresh the browser with `Ctrl + F5`.
+Check `config.json`. If `esp_paths` points to `sample_esp`, change it to your Easy Prompt Selector folder.
+
+You can also delete `config.json` and restart WebUI to let Visual EPS regenerate it.
+
+### Checkpoint/LoRA/Visual EPS is blank after launch
+
+Reload the browser page once. If needed, press `Ctrl + F5`.
+
+### WebUI's update button does not update the extension
+
+This usually means the extension was installed manually from ZIP. Install it from the GitHub URL if you want WebUI's updater to work.
+
+### JavaScript or card UI looks old after updating
+
+Restart WebUI and hard-refresh the browser with `Ctrl + F5`.
+
+## Release Notes
+
+### v0.1-test2
+
+- Reworked Visual EPS Tree view rendering for reForge Extra Networks.
+- Reduced the chance that Visual EPS interferes with initial Checkpoint/LoRA panel rendering.
+- Added a safer fallback so Visual EPS tree errors do not affect other Extra Networks pages.
 
 ## License
 
