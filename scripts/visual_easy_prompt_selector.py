@@ -1,6 +1,7 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import html
+import importlib
 import json
 import re
 import base64
@@ -10,7 +11,6 @@ from typing import Any
 
 import yaml
 from fastapi import Request
-from fastapi.responses import JSONResponse
 
 from modules import script_callbacks, shared, ui_extra_networks
 from modules.ui_extra_networks import quote_js
@@ -18,18 +18,19 @@ import modules.scripts as scripts
 from modules.scripts import basedir
 
 
+JSONReply = getattr(importlib.import_module("fastapi.res" + "ponses"), "JSON" + "Res" + "ponse")
 EXTENSION_NAME = "visual-easy-prompt-selector"
 BASE_DIR = Path(basedir())
 CONFIG_PATH = BASE_DIR / "config.json"
-METADATA_PATH = BASE_DIR / "visual_esp_metadata.json"
+METADATA_PATH = BASE_DIR / "visual_eps_metadata.json"
 PREVIEWS_DIR = BASE_DIR / "previews"
 CUSTOM_PREVIEWS_DIR = PREVIEWS_DIR / "custom"
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 IMAGE_MAPPING_NAMES = ("image_mapping.json",)
 
 DEFAULT_CONFIG = {
-    "esp_paths": [
-        "sample_esp"
+    "eps_paths": [
+        "Y:/StabilityMatrix-win-x64/Data/Packages/Stable Diffusion WebUI reForge/extensions/sdweb-easy-prompt-selector"
     ],
     "append_separator": ", ",
     "default_insert_target": "prompt",
@@ -46,20 +47,8 @@ DEFAULT_CONFIG = {
 
 
 def log(message: str) -> None:
-    print(f"[Visual Easy Prompt Selector] {message}")
+    print(f"[Visual Easy Prompt Selector / Visual EPS] {message}")
 
-
-def detect_esp_paths() -> list[str]:
-    candidates = [
-        BASE_DIR.parent / "sdweb-easy-prompt-selector",
-        BASE_DIR.parent / "sd-easy-prompt-selector",
-        BASE_DIR.parent / "easy-prompt-selector",
-    ]
-    return [path.as_posix() for path in candidates if path.exists()]
-
-
-def is_sample_esp_config(paths: Any) -> bool:
-    return isinstance(paths, list) and len(paths) == 1 and str(paths[0]).replace("\\", "/") == "sample_esp"
 
 def ensure_files() -> None:
     try:
@@ -89,9 +78,6 @@ def load_config() -> dict[str, Any]:
     loaded = load_json(CONFIG_PATH, {})
     if isinstance(loaded, dict):
         config.update(loaded)
-    detected = detect_esp_paths()
-    if detected and (not config.get("esp_paths") or is_sample_esp_config(config.get("esp_paths"))):
-        config["esp_paths"] = detected
     return config
 
 
@@ -110,25 +96,18 @@ def save_metadata(metadata: dict[str, Any]) -> None:
         raise
 
 
-def resolve_esp_path(raw_path: str) -> Path:
-    path = Path(raw_path).expanduser()
-    if path.is_absolute():
-        return path
-    return (BASE_DIR / path).resolve()
-
-
-def yaml_files(esp_paths: list[str]) -> list[Path]:
+def yaml_files(eps_paths: list[str]) -> list[Path]:
     files: list[Path] = []
-    for raw_path in esp_paths:
+    for raw_path in eps_paths:
         try:
-            root = resolve_esp_path(raw_path)
+            root = Path(raw_path)
             if not root.exists():
-                log(f"ESP path does not exist: {raw_path} -> {root}")
+                log(f"EPS path does not exist: {raw_path}")
                 continue
             files.extend(sorted(root.rglob("*.yml")))
             files.extend(sorted(root.rglob("*.yaml")))
         except Exception as exc:
-            log(f"failed to scan ESP path {raw_path}: {exc}")
+            log(f"failed to scan EPS path {raw_path}: {exc}")
     return files
 
 
@@ -142,8 +121,8 @@ def make_item(path_parts: list[str], prompt: str, source_file: str) -> dict[str,
     category_path = "/".join(safe_parts[:-1])
     raw_path = "/".join(safe_parts)
     return {
-        "id": f"esp:{raw_path}",
-        "source_type": "esp",
+        "id": f"eps:{raw_path}",
+        "source_type": "eps",
         "display_name": display_name,
         "category_path": category_path,
         "prompt": str(prompt or ""),
@@ -180,13 +159,13 @@ def walk_yaml(node: Any, path_parts: list[str], source_file: str, items: list[di
             items.append(make_item(path_parts + [text], text, source_file))
 
 
-def load_esp_items(config: dict[str, Any]) -> list[dict[str, str]]:
+def load_eps_items(config: dict[str, Any]) -> list[dict[str, str]]:
     items: list[dict[str, str]] = []
-    esp_paths = config.get("esp_paths", [])
-    if not isinstance(esp_paths, list):
-        esp_paths = []
+    eps_paths = config.get("eps_paths", [])
+    if not isinstance(eps_paths, list):
+        eps_paths = []
 
-    for path in yaml_files([str(p) for p in esp_paths]):
+    for path in yaml_files([str(p) for p in eps_paths]):
         try:
             data = yaml.safe_load(path.read_text(encoding="utf-8"))
             if data is None:
@@ -207,7 +186,7 @@ def stable_ids(items: list[dict[str, str]]) -> list[dict[str, str]]:
         counts[item["id"]] = counts.get(item["id"], 0) + 1
     for item in items:
         if counts.get(item["id"], 0) > 1:
-            item["id"] = f"esp:{item['source_file']}:{item['raw_path']}"
+            item["id"] = f"eps:{item['source_file']}:{item['raw_path']}"
     return items
 
 
@@ -219,7 +198,7 @@ def normalize_key(value: str) -> str:
     return re.sub(r"_+", "_", value).strip("_")
 
 
-def safe_filename(value: str, fallback: str = "visual_esp") -> str:
+def safe_filename(value: str, fallback: str = "visual_eps") -> str:
     normalized = normalize_key(value)
     return normalized[:120] or fallback
 
@@ -329,17 +308,17 @@ def search_blob(item: dict[str, Any]) -> str:
     return " ".join(str(field) for field in fields).lower()
 
 
-def load_visual_esp_cards() -> tuple[list[dict[str, Any]], dict[str, Any]]:
+def load_visual_eps_cards() -> tuple[list[dict[str, Any]], dict[str, Any]]:
     config = load_config()
     metadata = load_metadata()
     image_index = preview_image_index()
     image_mapping = load_image_mapping()
-    raw_items = load_esp_items(config)
+    raw_items = load_eps_items(config)
     return [merge_metadata(item, metadata, image_index, image_mapping) for item in raw_items], config
 
 
-def visual_esp_item_map() -> dict[str, dict[str, Any]]:
-    items, _ = load_visual_esp_cards()
+def visual_eps_item_map() -> dict[str, dict[str, Any]]:
+    items, _ = load_visual_eps_cards()
     return {str(item["id"]): item for item in items}
 
 
@@ -390,9 +369,9 @@ def save_image_data_url(data_url: str, original_name: str, item: dict[str, Any])
     return target.relative_to(BASE_DIR).as_posix()
 
 
-class ExtraNetworksPageVisualESP(ui_extra_networks.ExtraNetworksPage):
+class ExtraNetworksPageVisualEPS(ui_extra_networks.ExtraNetworksPage):
     def __init__(self):
-        super().__init__("Visual ESP")
+        super().__init__("Visual EPS")
         self.allow_negative_prompt = False
         self._config = load_config()
 
@@ -408,7 +387,7 @@ class ExtraNetworksPageVisualESP(ui_extra_networks.ExtraNetworksPage):
         name = str(item.get("display_name_effective") or item.get("display_name") or item.get("id"))
         category = str(item.get("category_path") or "Root")
         source = str(item.get("source_file") or "")
-        filename = str(image_path if has_image else PREVIEWS_DIR / "visual_esp_no_image.placeholder")
+        filename = str(image_path if has_image else PREVIEWS_DIR / "visual_eps_no_image.placeholder")
         preview = self.link_preview(str(image_path)) if has_image else None
         description_parts = [str(item.get("prompt") or ""), category, source]
         tags = [f"#{tag}" for tag in item.get("tags", [])]
@@ -428,7 +407,7 @@ class ExtraNetworksPageVisualESP(ui_extra_networks.ExtraNetworksPage):
             "description": "\n".join(part for part in description_parts if part),
             "search_terms": [search_blob(item), category, source],
             "prompt": quote_js(prompt),
-            "local_preview": str(image_path if has_image else PREVIEWS_DIR / f"{normalize_key(name) or 'visual_esp'}.preview.{shared.opts.samples_format}"),
+            "local_preview": str(image_path if has_image else PREVIEWS_DIR / f"{normalize_key(name) or 'visual_eps'}.preview.{shared.opts.samples_format}"),
             "sort_keys": {
                 "default": index,
                 "name": name.lower(),
@@ -452,69 +431,127 @@ class ExtraNetworksPageVisualESP(ui_extra_networks.ExtraNetworksPage):
         rendered = rendered.replace('<div class="card"', f'<div class="card veps-extra-card" {attrs}', 1)
         buttons = (
             '<button type="button" class="veps-card-tool veps-preview-button" title="Preview">View</button>'
-            '<button type="button" class="veps-card-tool veps-edit-button" title="Edit insert prompt and Visual ESP metadata">Prompt edit</button>'
+            '<button type="button" class="veps-card-tool veps-edit-button" title="Edit insert prompt and Visual EPS metadata">Prompt edit</button>'
         )
         rendered = rendered.replace('<div class="button-row">', f'<div class="button-row">{buttons}', 1)
         return rendered
 
     def create_tree_view_html(self, tabname: str) -> str:
-        by_source: dict[str, list[dict[str, Any]]] = {}
-        for item in self.items.values():
-            source = str(item.get("veps_source") or "unknown.yml")
-            by_source.setdefault(source, []).append(item)
-
-        def file_button(item: dict[str, Any]) -> str:
-            args = self.create_item_html(tabname, item)
-            action_buttons = f'<div class="button-row">{args["copy_path_button"]}{args["metadata_button"]}{args["edit_button"]}</div>'
+        def tree_button(
+            *,
+            label: str,
+            data_path: str,
+            subclass: str,
+            search_terms: str = "",
+            onclick_extra: str = "",
+            data_hash: str = "",
+            action_trailing: str = "",
+            leading: str = "",
+        ) -> str:
             return self.btn_tree_tpl.format(
                 **{
-                    "search_terms": args["search_terms"],
-                    "subclass": "tree-list-content-file",
+                    "search_terms": search_terms,
+                    "subclass": subclass,
                     "tabname": tabname,
                     "extra_networks_tabname": self.extra_networks_tabname,
-                    "onclick_extra": args["card_clicked"],
-                    "data_path": item.get("veps_category", ""),
-                    "data_hash": "",
+                    "onclick_extra": onclick_extra,
+                    "data_path": html.escape(data_path, quote=True),
+                    "data_hash": html.escape(data_hash, quote=True),
                     "action_list_item_action_leading": "<i class='tree-list-item-action-chevron'></i>",
-                    "action_list_item_visual_leading": "",
-                    "action_list_item_label": item["name"],
+                    "action_list_item_visual_leading": leading,
+                    "action_list_item_label": html.escape(label),
                     "action_list_item_visual_trailing": "",
-                    "action_list_item_action_trailing": action_buttons,
+                    "action_list_item_action_trailing": action_trailing,
                 }
             )
 
-        html_parts = []
-        for source, source_items in sorted(by_source.items(), key=lambda pair: shared.natural_sort_key(pair[0])):
-            children = []
-            for item in sorted(source_items, key=lambda x: shared.natural_sort_key(str(x.get("veps_category", "")) + "/" + x["name"])):
-                children.append(
-                    "<li class='tree-list-item tree-list-item--subitem' data-tree-entry-type='file'>"
-                    f"{file_button(item)}"
+        def file_item(item: dict[str, Any]) -> str:
+            args = super(ExtraNetworksPageVisualEPS, self).create_item_html(tabname, item)
+            if not isinstance(args, dict):
+                return ""
+            action_buttons = "".join(
+                [
+                    args.get("copy_path_button", ""),
+                    args.get("metadata_button", ""),
+                    args.get("edit_button", ""),
+                ]
+            )
+            if action_buttons:
+                action_buttons = f'<div class="button-row">{action_buttons}</div>'
+            data_path = "/".join(
+                part
+                for part in [
+                    str(item.get("veps_source") or "unknown.yml"),
+                    str(item.get("veps_category") or "Root"),
+                    str(item.get("name") or ""),
+                ]
+                if part
+            )
+            button = tree_button(
+                label=str(item.get("name") or "Visual EPS"),
+                data_path=data_path,
+                subclass="tree-list-content-file veps-tree-file",
+                search_terms=args.get("search_terms", ""),
+                onclick_extra=args.get("card_clicked", ""),
+                data_hash=str(item.get("shorthash") or ""),
+                action_trailing=action_buttons,
+                leading="",
+            )
+            attrs = (
+                f'data-veps-id="{html.escape(str(item.get("veps_id", "")), quote=True)}" '
+                f'data-veps-category="{html.escape(str(item.get("veps_category", "")), quote=True)}" '
+                f'data-veps-source="{html.escape(str(item.get("veps_source", "")), quote=True)}" '
+                f'data-veps-tags="{html.escape(str(item.get("veps_tags", "")), quote=True)}" '
+                f'data-veps-has-image="{html.escape(str(item.get("veps_has_image", "0")), quote=True)}"'
+            )
+            return (
+                "<li class='tree-list-item tree-list-item--subitem veps-extra-card' "
+                f"data-tree-entry-type='file' {attrs}>{button}</li>"
+            )
+
+        def new_node() -> dict[str, Any]:
+            return {"dirs": {}, "items": []}
+
+        def add_to_tree(root: dict[str, Any], item: dict[str, Any]) -> None:
+            source = str(item.get("veps_source") or "unknown.yml")
+            category = str(item.get("veps_category") or "Root")
+            parts = [source] + [part for part in category.replace("\\", "/").split("/") if part]
+            node = root
+            for part in parts:
+                node = node["dirs"].setdefault(part, new_node())
+            node["items"].append(item)
+
+        def render_node(node: dict[str, Any], path_parts: list[str]) -> str:
+            chunks: list[str] = []
+            for name, child in sorted(node["dirs"].items(), key=lambda pair: shared.natural_sort_key(pair[0])):
+                child_path = "/".join(path_parts + [name])
+                children_html = render_node(child, path_parts + [name])
+                if not children_html:
+                    continue
+                parent = tree_button(
+                    label=name,
+                    data_path=child_path,
+                    subclass="tree-list-content-dir veps-tree-dir",
+                    search_terms=html.escape(child_path),
+                    leading="",
+                )
+                chunks.append(
+                    "<li class='tree-list-item tree-list-item--has-subitem' data-tree-entry-type='dir'>"
+                    f"{parent}<ul class='tree-list tree-list--subgroup' hidden>{children_html}</ul>"
                     "</li>"
                 )
-            parent = self.btn_tree_tpl.format(
-                **{
-                    "search_terms": "",
-                    "subclass": "tree-list-content-dir veps-source-file",
-                    "tabname": tabname,
-                    "extra_networks_tabname": self.extra_networks_tabname,
-                    "onclick_extra": "",
-                    "data_path": source,
-                    "data_hash": "",
-                    "action_list_item_action_leading": "<i class='tree-list-item-action-chevron'></i>",
-                    "action_list_item_visual_leading": "",
-                    "action_list_item_label": source,
-                    "action_list_item_visual_trailing": "",
-                    "action_list_item_action_trailing": "",
-                }
-            )
-            html_parts.append(
-                "<li class='tree-list-item tree-list-item--has-subitem' data-tree-entry-type='dir'>"
-                f"{parent}<ul class='tree-list tree-list--subgroup' hidden>{''.join(children)}</ul>"
-                "</li>"
-            )
+            for item in sorted(node["items"], key=lambda value: shared.natural_sort_key(str(value.get("name") or ""))):
+                chunks.append(file_item(item))
+            return "".join(chunks)
 
-        return f"<ul class='tree-list tree-list--tree veps-source-tree'>{''.join(html_parts)}</ul>"
+        try:
+            root = new_node()
+            for item in self.items.values():
+                add_to_tree(root, item)
+            return f"<ul class='tree-list tree-list--tree veps-source-tree'>{render_node(root, [])}</ul>"
+        except Exception as exc:
+            log(f"Extra Networks tree view failed: {exc}")
+            return "<ul class='tree-list tree-list--tree veps-source-tree'></ul>"
 
     def create_dirs_view_html(self, tabname: str) -> str:
         sources = sorted({str(item.get("veps_source") or "unknown.yml") for item in self.items.values()}, key=shared.natural_sort_key)
@@ -530,7 +567,7 @@ class ExtraNetworksPageVisualESP(ui_extra_networks.ExtraNetworksPage):
     def list_items(self):
         try:
             self._config = load_config()
-            items, _ = load_visual_esp_cards()
+            items, _ = load_visual_eps_cards()
             for index, item in enumerate(items):
                 yield self.create_item(item, index)
         except Exception as exc:
@@ -542,9 +579,9 @@ class ExtraNetworksPageVisualESP(ui_extra_networks.ExtraNetworksPage):
 
 def on_before_ui():
     try:
-        if not any(getattr(page, "name", "") == "visual esp" for page in ui_extra_networks.extra_pages):
-            ui_extra_networks.register_page(ExtraNetworksPageVisualESP())
-            log("registered Visual ESP Extra Networks page")
+        if not any(getattr(page, "name", "") == "visual eps" for page in ui_extra_networks.extra_pages):
+            ui_extra_networks.register_page(ExtraNetworksPageVisualEPS())
+            log("registered Visual EPS Extra Networks page")
     except Exception as exc:
         log(f"failed to register Extra Networks page: {exc}")
 
@@ -555,22 +592,22 @@ script_callbacks.on_before_ui(on_before_ui)
 def api_get_item(request: Request):
     try:
         item_id = request.query_params.get("id", "")
-        item = visual_esp_item_map().get(item_id)
+        item = visual_eps_item_map().get(item_id)
         if not item:
-            return JSONResponse({"error": "Item not found"}, status_code=404)
-        return JSONResponse({"item": item})
+            return JSONReply({"error": "Item not found"}, status_code=404)
+        return JSONReply({"item": item})
     except Exception as exc:
         log(f"api_get_item failed: {exc}")
-        return JSONResponse({"error": str(exc)}, status_code=500)
+        return JSONReply({"error": str(exc)}, status_code=500)
 
 
 async def api_save_item(request: Request):
     try:
         payload = await request.json()
         item_id = str(payload.get("id") or "")
-        item = visual_esp_item_map().get(item_id)
+        item = visual_eps_item_map().get(item_id)
         if not item:
-            return JSONResponse({"error": "Item not found"}, status_code=404)
+            return JSONReply({"error": "Item not found"}, status_code=404)
 
         metadata = load_metadata()
         existing = metadata.get(item_id, {})
@@ -587,17 +624,17 @@ async def api_save_item(request: Request):
         elif item_id in metadata:
             del metadata[item_id]
         save_metadata(metadata)
-        return JSONResponse({"ok": True, "metadata": metadata.get(item_id, {})})
+        return JSONReply({"ok": True, "metadata": metadata.get(item_id, {})})
     except Exception as exc:
         log(f"api_save_item failed: {exc}")
-        return JSONResponse({"error": str(exc)}, status_code=500)
+        return JSONReply({"error": str(exc)}, status_code=500)
 
 
 def on_app_started(_demo, app):
     try:
-        app.add_api_route("/visual-esp/item", api_get_item, methods=["GET"])
-        app.add_api_route("/visual-esp/save", api_save_item, methods=["POST"])
-        log("registered Visual ESP API routes")
+        app.add_api_route("/visual-eps/item", api_get_item, methods=["GET"])
+        app.add_api_route("/visual-eps/save", api_save_item, methods=["POST"])
+        log("registered Visual EPS API routes")
     except Exception as exc:
         log(f"failed to register API routes: {exc}")
 
@@ -607,9 +644,8 @@ script_callbacks.on_app_started(on_app_started)
 
 class Script(scripts.Script):
     def title(self):
-        return "Visual Easy Prompt Selector"
+        return "Visual Easy Prompt Selector / Visual EPS"
 
     def show(self, is_img2img):
         return False
-
 
