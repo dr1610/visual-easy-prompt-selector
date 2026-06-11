@@ -429,9 +429,10 @@ class ExtraNetworksPageVisualEPS(ui_extra_networks.ExtraNetworksPage):
             f'data-veps-has-image="{html.escape(item.get("veps_has_image", "0"), quote=True)}"'
         )
         rendered = rendered.replace('<div class="card"', f'<div class="card veps-extra-card" {attrs}', 1)
+        veps_id = html.escape(str(item.get("veps_id", "")), quote=True)
         buttons = (
             '<button type="button" class="veps-card-tool veps-preview-button" title="Preview">View</button>'
-            '<button type="button" class="veps-card-tool veps-edit-button" title="Edit insert prompt and Visual EPS metadata">Prompt edit</button>'
+            f'<button type="button" class="veps-card-tool veps-edit-button" data-veps-id="{veps_id}" title="Edit insert prompt and Visual EPS metadata">Prompt edit</button>'
         )
         rendered = rendered.replace('<div class="button-row">', f'<div class="button-row">{buttons}', 1)
         return rendered

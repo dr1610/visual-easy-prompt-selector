@@ -311,25 +311,26 @@
     }
   }
 
-  async function openEdit(card) {
-    const id = card.dataset.vepsId;
+  async function openEdit(card, trigger) {
+    const id = (trigger && trigger.dataset.vepsId) || card.dataset.vepsId;
+    if (!id) throw new Error("Visual EPS item id is missing. Reload WebUI and try again.");
     const item = await getItem(id);
     const form = document.createElement("form");
     form.className = "veps-edit-form";
     form.innerHTML = `
-      <label>陦ｨ遉ｺ蜷阪・荳頑嶌縺・input name="display_name_override"></label>
-      <label>蜈・・ESP繝励Ο繝ｳ繝励ヨ・・ML縺ｯ螟画峩縺励∪縺帙ｓ・・textarea name="prompt" readonly></textarea></label>
-      <label>繧ｯ繝ｪ繝・け譎ゅ↓蜑阪∈霑ｽ蜉縺吶ｋ繝励Ο繝ｳ繝励ヨ<textarea name="prepend_prompt" placeholder="萓・ masterpiece, best quality"></textarea></label>
-      <label>繧ｯ繝ｪ繝・け譎ゅ↓蠕後ｍ縺ｸ霑ｽ蜉縺吶ｋ繝励Ο繝ｳ繝励ヨ<textarea name="append_prompt" placeholder="萓・ detailed eyes, soft lighting"></textarea></label>
-      <label>Negative prompt縺ｸ霑ｽ蜉<textarea name="append_negative" placeholder="萓・ low quality, bad anatomy"></textarea></label>
-      <label>Tags<input name="tags" placeholder="螟・ 豬ｷ, 豌ｴ逹"></label>
+      <label>Display name override<input name="display_name_override"></label>
+      <label>Original EPS prompt (read only)<textarea name="prompt" readonly></textarea></label>
+      <label>Prompt to prepend on insert<textarea name="prepend_prompt" placeholder="e.g. masterpiece, best quality"></textarea></label>
+      <label>Prompt to append on insert<textarea name="append_prompt" placeholder="e.g. detailed eyes, soft lighting"></textarea></label>
+      <label>Negative prompt to append<textarea name="append_negative" placeholder="e.g. low quality, bad anatomy"></textarea></label>
+      <label>Tags<input name="tags" placeholder="e.g. hair, pose"></label>
       <label>Memo<textarea name="memo"></textarea></label>
-      <label>蜿り・判蜒・input name="image" type="file" accept="image/png,image/jpeg,image/webp"></label>
-      <label class="veps-inline"><input name="clear_image" type="checkbox"> 迴ｾ蝨ｨ縺ｮ蜿り・判蜒上Μ繝ｳ繧ｯ繧貞､悶☆</label>
+      <label>Reference image<input name="image" type="file" accept="image/png,image/jpeg,image/webp"></label>
+      <label class="veps-inline"><input name="clear_image" type="checkbox"> Clear current reference image link</label>
       <div class="veps-current-image"></div>
       <div class="veps-form-actions">
-        <button type="submit">菫晏ｭ・/button>
-        <button type="button" class="veps-modal-close">蜿匁ｶ・/button>
+        <button type="submit">Save</button>
+        <button type="button" class="veps-modal-close">Cancel</button>
       </div>
       <div class="veps-form-status"></div>
     `;
@@ -343,12 +344,12 @@
     form.elements.memo.value = item.memo || "";
     const imageBox = q(".veps-current-image", form);
     const imageSrc = cardImage(card);
-    imageBox.innerHTML = imageSrc ? `<img src="${imageSrc}" alt=""><span>${item.image || ""}</span>` : "<span>蜿り・判蜒上↑縺・/span>";
+    imageBox.innerHTML = imageSrc ? `<img src="${imageSrc}" alt=""><span>${item.image || ""}</span>` : "<span>No reference image</span>";
 
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
       const status = q(".veps-form-status", form);
-      status.textContent = "菫晏ｭ倅ｸｭ...";
+      status.textContent = "Saving...";
       try {
         const file = form.elements.image.files[0];
         const imageDataUrl = await readFileAsDataUrl(file);
@@ -364,7 +365,7 @@
           image_data_url: imageDataUrl,
           image_name: file ? file.name : "",
         });
-        status.textContent = "菫晏ｭ倥＠縺ｾ縺励◆縲ゅき繝ｼ繝峨ｒ譖ｴ譁ｰ荳ｭ...";
+        status.textContent = "Saved. Refreshing cards...";
         refreshVisualEspPages();
         setTimeout(closeModal, 600);
       } catch (error) {
@@ -372,7 +373,7 @@
       }
     });
 
-    openModal(`Visual EPS邱ｨ髮・ ${cardTitle(card)}`, form);
+    openModal(`Visual EPS edit: ${cardTitle(card)}`, form);
   }
 
   function openPreview(card) {
@@ -402,7 +403,7 @@
         edit.addEventListener("click", (event) => {
           event.preventDefault();
           event.stopPropagation();
-          openEdit(card).catch((error) => alert(error.message || String(error)));
+          openEdit(card, edit).catch((error) => alert(error.message || String(error)));
         });
       }
       if (preview) {
