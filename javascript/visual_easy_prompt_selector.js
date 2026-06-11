@@ -1,4 +1,4 @@
-﻿(function () {
+(function () {
   "use strict";
 
   const state = {
@@ -16,18 +16,27 @@
   function qa(selector, root = document) {
     return Array.from(root.querySelectorAll(selector));
   }
+  function protectToolbarControls(toolbar, selector) {
+    for (const control of qa(selector, toolbar)) {
+      for (const eventName of ["pointerdown", "mousedown", "click", "keydown"]) {
+        control.addEventListener(eventName, (event) => {
+          event.stopPropagation();
+        });
+      }
+    }
+  }
 
   function pageForCard(card) {
-    return card.closest(".extra-page") || card.closest("[id$='_visual_esp']");
+    return card.closest(".extra-page") || card.closest("[id$='_visual_esp'], [id$='_visual_eps']");
   }
 
   function visualEspPages() {
-    return qa("[id$='_visual_esp']").filter((page) => q(".veps-extra-card", page));
+    return qa("[id$='_visual_esp'], [id$='_visual_eps']");
   }
 
   function cardTitle(card) {
     const title = q(".name", card);
-    return title ? title.textContent.trim() : card.dataset.name || "Visual ESP";
+    return title ? title.textContent.trim() : card.dataset.name || "Visual EPS";
   }
 
   function cardDescription(card) {
@@ -80,7 +89,7 @@
   function visualEspTreeClickGuard(event) {
     const content = event.target.closest(".veps-source-tree .tree-list-content-dir");
     if (!content) return;
-    const page = content.closest("[id$='_visual_esp']");
+    const page = content.closest("[id$='_visual_esp'], [id$='_visual_eps']");
     if (!page) return;
     const clickedChevron = event.target.closest(".tree-list-item-action--leading, .tree-list-item-action-chevron");
     if (clickedChevron) return;
@@ -89,9 +98,9 @@
     event.stopPropagation();
     event.stopImmediatePropagation();
 
-    const tabMatch = page.id.match(/^(txt2img|img2img)_visual_esp$/);
+    const tabMatch = page.id.match(/^(txt2img|img2img)_visual_ep[sp]$/);
     const tabname = tabMatch ? tabMatch[1] : "";
-    const search = tabname ? document.getElementById(`${tabname}_visual_esp_extra_search`) : null;
+    const search = tabname ? document.getElementById(`${tabname}_${page.id.endsWith("_visual_eps") ? "visual_eps" : "visual_esp"}_extra_search`) : null;
     if (search) {
       search.value = content.dataset.path || "";
       search.dispatchEvent(new Event("input", { bubbles: true }));
@@ -103,7 +112,6 @@
     page.dataset.vepsToolbarBound = "1";
 
     const cards = pageCards(page);
-    const categories = uniqueSorted(cards.map((card) => card.dataset.vepsCategory || ""));
     const tags = uniqueSorted(
       cards.flatMap((card) =>
         (card.dataset.vepsTags || "")
@@ -117,15 +125,12 @@
     toolbar.className = "veps-extra-toolbar";
     toolbar.innerHTML = `
       <div class="veps-filter-row">
-        <input class="veps-local-search" type="search" placeholder="Visual ESP search">
+        <input class="veps-local-search" type="search" placeholder="Visual EPS search">
         <select class="veps-search-mode" title="Search mode">
           <option value="and">AND</option>
           <option value="or">OR</option>
         </select>
-        <details class="veps-category-tree">
-          <summary>Category</summary>
-          <div class="veps-category-list"></div>
-        </details>
+
         <select class="veps-image-select" title="Image filter">
           <option value="all">All images</option>
           <option value="with">Image only</option>
@@ -137,21 +142,9 @@
       <div class="veps-tag-list"></div>
     `;
 
-    const categoryList = q(".veps-category-list", toolbar);
-    const allButton = document.createElement("button");
-    allButton.type = "button";
-    allButton.textContent = "All";
-    allButton.dataset.category = "";
-    categoryList.appendChild(allButton);
 
-    for (const category of categories) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.textContent = category;
-      button.dataset.category = category;
-      button.style.paddingLeft = `${Math.min(category.split("/").length - 1, 5) * 14 + 8}px`;
-      categoryList.appendChild(button);
-    }
+
+    protectToolbarControls(toolbar, ".veps-local-search, .veps-search-mode, .veps-image-select");
 
     const tagList = q(".veps-tag-list", toolbar);
     for (const tag of tags) {
@@ -163,12 +156,8 @@
     }
 
     toolbar.addEventListener("click", (event) => {
-      const categoryButton = event.target.closest("[data-category]");
       const tagButton = event.target.closest("[data-tag]");
-      if (categoryButton) {
-        state.category = categoryButton.dataset.category || "";
-        applyFilters();
-      }
+
       if (tagButton) {
         state.tag = tagButton.dataset.tag || "";
         applyFilters();
@@ -216,12 +205,10 @@
       let visible = 0;
       const cards = pageCards(page);
       for (const card of cards) {
-        const category = card.dataset.vepsCategory || "";
         const tags = (card.dataset.vepsTags || "").split(",").map((tag) => tag.trim());
         const hasImage = card.dataset.vepsHasImage === "1";
         const tokens = parseTokens(state.query);
         const blob = cardSearchBlob(card);
-        const categoryMatch = !state.category || category === state.category || category.startsWith(`${state.category}/`);
         const tagMatch = !state.tag || tags.includes(state.tag);
         const imageMatch =
           state.image === "all" ||
@@ -232,14 +219,13 @@
           (state.searchMode === "or"
             ? tokens.some((token) => blob.includes(token))
             : tokens.every((token) => blob.includes(token)));
-        const show = categoryMatch && tagMatch && imageMatch && searchMatch;
+        const show = tagMatch && imageMatch && searchMatch;
         card.classList.toggle("veps-filter-hidden", !show);
         if (show) visible += 1;
       }
       const active = q(".veps-active-filter", page);
       if (active) {
         const labels = [];
-        if (state.category) labels.push(`Category: ${state.category}`);
         if (state.tag) labels.push(`#${state.tag}`);
         if (state.image !== "all") labels.push(state.image === "with" ? "Image only" : "No image");
         if (state.query) labels.push(`${state.searchMode.toUpperCase()}: ${state.query}`);
@@ -258,7 +244,7 @@
       <div class="veps-modal-backdrop"></div>
       <div class="veps-modal-panel">
         <div class="veps-modal-head">
-          <strong class="veps-modal-title">Visual ESP</strong>
+          <strong class="veps-modal-title">Visual EPS</strong>
           <button type="button" class="veps-modal-close">Close</button>
         </div>
         <div class="veps-modal-body"></div>
@@ -386,7 +372,7 @@
       }
     });
 
-    openModal(`Visual ESP邱ｨ髮・ ${cardTitle(card)}`, form);
+    openModal(`Visual EPS邱ｨ髮・ ${cardTitle(card)}`, form);
   }
 
   function openPreview(card) {
