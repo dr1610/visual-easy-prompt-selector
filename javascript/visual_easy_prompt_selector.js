@@ -274,7 +274,7 @@
   }
 
   async function getItem(id) {
-    const response = await fetch(`/visual-esp/item?id=${encodeURIComponent(id)}`);
+    const response = await fetch(`/visual-eps/item?id=${encodeURIComponent(id)}`);
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "Failed to load item");
     return data.item;
@@ -294,7 +294,7 @@
   }
 
   async function saveItem(payload) {
-    const response = await fetch("/visual-esp/save", {
+    const response = await fetch("/visual-eps/save", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
