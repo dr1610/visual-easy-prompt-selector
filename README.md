@@ -6,7 +6,7 @@ The extension reads Easy Prompt Selector files in read-only mode. It does not ed
 
 ## Status
 
-Current test release: `v0.1-test2`
+Current test release: `v0.1-test3`
 
 This is still a test release. Please report issues with your WebUI type, browser, and a short description of what happened.
 
@@ -142,6 +142,37 @@ previews/imported/
 ```
 
 If a prompt has no preview image, Visual EPS will show a normal card without a custom preview.
+### WebP preview resize tool
+
+A helper tool is included at:
+
+```text
+tools/resize_visual_eps_previews.bat
+```
+
+Use it when your `previews/` folder contains many large PNG/JPG images. The tool can:
+
+- Convert preview images to WebP thumbnails.
+- Limit the number of files converted in one run.
+- Skip small files below a chosen KB threshold.
+- Back up original images before conversion.
+- Update `image_mapping.json`, Visual EPS metadata, and YAML image references from PNG/JPG to WebP.
+
+This is optional. Visual EPS also works without preview images.
+
+
+## Performance Notes
+
+Visual EPS can become heavy if many high-resolution reference images are kept in `previews/` and rendered through Extra Networks.
+
+This release keeps the visual workflow while reducing the amount of work done in the browser:
+
+- Preview images are lazy-loaded instead of forcing every card image to load immediately.
+- Visual EPS search is synchronized with the native Extra Networks search so the panel search can still target the full EPS tree.
+- Repeated background rebinding was removed to reduce unnecessary browser work.
+- A helper tool is included to resize existing preview images to small WebP thumbnails.
+
+The recommended preview size is around 128-256 px. Keep original large images outside the extension folder, or use the backup option in the tool before conversion.
 
 ## Files Written by This Extension
 
@@ -181,6 +212,13 @@ Restart WebUI and hard-refresh the browser with `Ctrl + F5`.
 
 ## Release Notes
 
+### v0.1-test3
+
+- Synchronized Visual EPS panel search with the native Extra Networks search so searches can target the full EPS tree.
+- Added lazy preview image loading to reduce browser work on large visual prompt libraries.
+- Removed repeated background rebinding that could make reForge feel heavier over time.
+- Added a WebP preview resize tool for converting large PNG/JPG reference images into small thumbnails.
+- Added reference updates for `image_mapping.json`, metadata, and YAML image paths when using the resize tool.
 ### v0.1-test2
 
 - Reworked Visual EPS Tree view rendering for reForge Extra Networks.
@@ -190,3 +228,5 @@ Restart WebUI and hard-refresh the browser with `Ctrl + F5`.
 ## License
 
 MIT License. See `LICENSE` for details.
+
+

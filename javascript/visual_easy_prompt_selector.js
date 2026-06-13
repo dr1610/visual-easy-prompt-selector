@@ -1,4 +1,4 @@
-(function () {
+﻿(function () {
   "use strict";
 
   const state = {
@@ -26,12 +26,48 @@
     }
   }
 
+  let lazyImageObserver = null;
+
+  function loadCardImage(card) {
+    const image = q("img.preview[data-veps-src]", card);
+    if (!image || image.dataset.vepsLoaded === "1") return;
+    image.src = image.dataset.vepsSrc;
+    image.dataset.vepsLoaded = "1";
+  }
+
+  function ensureLazyImageObserver() {
+    if (lazyImageObserver || !("IntersectionObserver" in window)) return lazyImageObserver;
+    lazyImageObserver = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        const image = entry.target;
+        const card = image.closest(".veps-extra-card") || image;
+        loadCardImage(card);
+        lazyImageObserver.unobserve(image);
+      }
+    }, { rootMargin: "360px 0px" });
+    return lazyImageObserver;
+  }
+
+  function setupLazyImages(root = document) {
+    const observer = ensureLazyImageObserver();
+    for (const image of qa("img.preview[data-veps-src]", root)) {
+      if (image.dataset.vepsLoaded === "1" || image.dataset.vepsObserved === "1") continue;
+      image.dataset.vepsObserved = "1";
+      if (observer) {
+        observer.observe(image);
+      } else {
+        const card = image.closest(".veps-extra-card");
+        if (!card || !card.classList.contains("veps-filter-hidden")) loadCardImage(card || image);
+      }
+    }
+  }
   function pageForCard(card) {
     return card.closest(".extra-page") || card.closest("[id$='_visual_esp'], [id$='_visual_eps']");
   }
 
   function visualEspPages() {
-    return qa("[id$='_visual_esp'], [id$='_visual_eps']");
+    return qa("[id$='_visual_esp'], [id$='_visual_eps']").filter((page) => q(".veps-extra-card", page));
   }
 
   function cardTitle(card) {
@@ -46,7 +82,7 @@
 
   function cardImage(card) {
     const image = q("img.preview", card);
-    return image ? image.src : "";
+    return image ? image.dataset.vepsSrc || image.src : "";
   }
 
   function uniqueSorted(values) {
@@ -86,21 +122,33 @@
     return qa(".veps-extra-card", page);
   }
 
+
+  function nativeExtraSearchForPage(page) {
+    return page && page.id ? document.getElementById(`${page.id}_extra_search`) : null;
+  }
+
+  function setNativeExtraSearch(page, value) {
+    const nativeSearch = nativeExtraSearchForPage(page);
+    if (!nativeSearch || nativeSearch.value === value) return;
+    nativeSearch.value = value;
+    nativeSearch.dispatchEvent(new Event("input", { bubbles: true }));
+    nativeSearch.dispatchEvent(new Event("change", { bubbles: true }));
+  }
   function visualEspTreeClickGuard(event) {
-    const content = event.target.closest(".veps-source-tree .tree-list-content-dir");
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target) return;
+    const content = target.closest(".veps-source-tree .tree-list-content-dir");
     if (!content) return;
     const page = content.closest("[id$='_visual_esp'], [id$='_visual_eps']");
     if (!page) return;
-    const clickedChevron = event.target.closest(".tree-list-item-action--leading, .tree-list-item-action-chevron");
+    const clickedChevron = target.closest(".tree-list-item-action--leading, .tree-list-item-action-chevron");
     if (clickedChevron) return;
 
     event.preventDefault();
     event.stopPropagation();
     event.stopImmediatePropagation();
 
-    const tabMatch = page.id.match(/^(txt2img|img2img)_visual_ep[sp]$/);
-    const tabname = tabMatch ? tabMatch[1] : "";
-    const search = tabname ? document.getElementById(`${tabname}_${page.id.endsWith("_visual_eps") ? "visual_eps" : "visual_esp"}_extra_search`) : null;
+    const search = nativeExtraSearchForPage(page);
     if (search) {
       search.value = content.dataset.path || "";
       search.dispatchEvent(new Event("input", { bubbles: true }));
@@ -181,6 +229,11 @@
     const search = q(".veps-local-search", toolbar);
     search.addEventListener("input", () => {
       state.query = search.value;
+      for (const page of visualEspPages()) {
+        setNativeExtraSearch(page, state.query);
+      }
+      window.setTimeout(bindCards, 80);
+      window.setTimeout(applyFilters, 160);
       applyFilters();
     });
 
@@ -231,6 +284,7 @@
         if (state.query) labels.push(`${state.searchMode.toUpperCase()}: ${state.query}`);
         active.textContent = `${visible} / ${cards.length} visible${labels.length ? " - " + labels.join(" / ") : ""}`;
       }
+      setupLazyImages(page);
     }
   }
 
@@ -293,6 +347,30 @@
     });
   }
 
+
+  async function resizeImageFileAsDataUrl(file, maxSize = 256, quality = 0.84) {
+    if (!file) return { dataUrl: "", name: "" };
+    if (!file.type || !file.type.startsWith("image/")) {
+      return { dataUrl: await readFileAsDataUrl(file), name: file.name || "preview" };
+    }
+
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, maxSize / Math.max(bitmap.width, bitmap.height));
+    const width = Math.max(1, Math.round(bitmap.width * scale));
+    const height = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext("2d");
+    context.drawImage(bitmap, 0, 0, width, height);
+    if (bitmap.close) bitmap.close();
+
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/webp", quality));
+    if (!blob) return { dataUrl: await readFileAsDataUrl(file), name: file.name || "preview" };
+    const dataUrl = await readFileAsDataUrl(blob);
+    const stem = String(file.name || "preview").replace(/\.[^.]+$/, "");
+    return { dataUrl, name: `${stem}.webp` };
+  }
   async function saveItem(payload) {
     const response = await fetch("/visual-eps/save", {
       method: "POST",
@@ -352,7 +430,7 @@
       status.textContent = "Saving...";
       try {
         const file = form.elements.image.files[0];
-        const imageDataUrl = await readFileAsDataUrl(file);
+        const imagePayload = await resizeImageFileAsDataUrl(file);
         await saveItem({
           id,
           display_name_override: form.elements.display_name_override.value,
@@ -362,8 +440,8 @@
           tags: form.elements.tags.value,
           memo: form.elements.memo.value,
           clear_image: form.elements.clear_image.checked,
-          image_data_url: imageDataUrl,
-          image_name: file ? file.name : "",
+          image_data_url: imagePayload.dataUrl,
+          image_name: imagePayload.name,
         });
         status.textContent = "Saved. Refreshing cards...";
         refreshVisualEspPages();
@@ -394,6 +472,10 @@
     for (const page of visualEspPages()) {
       buildToolbar(page);
     }
+    setupLazyImages();
+    for (const card of qa(".veps-extra-card:not(.veps-filter-hidden)").slice(0, 40)) {
+      loadCardImage(card);
+    }
     for (const card of qa(".veps-extra-card")) {
       if (card.dataset.vepsBound === "1") continue;
       card.dataset.vepsBound = "1";
@@ -417,12 +499,28 @@
     applyFilters();
   }
 
+
+  function bindOnVisualEspInteraction(event) {
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target) return;
+    if (!target.closest("[id$='_visual_esp'], [id$='_visual_eps'], button, .tab-nav, .tabs")) return;
+    window.setTimeout(bindCards, 80);
+    window.setTimeout(bindCards, 350);
+  }
   document.addEventListener("DOMContentLoaded", bindCards);
   document.addEventListener("gradio:loaded", bindCards);
-  document.addEventListener("gradio:render", bindCards);
+  document.addEventListener("click", bindOnVisualEspInteraction, true);
   document.addEventListener("click", visualEspTreeClickGuard, true);
-  setInterval(bindCards, 1500);
 })();
+
+
+
+
+
+
+
+
+
 
 
 

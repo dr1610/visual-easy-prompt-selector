@@ -1,0 +1,16 @@
+﻿visual_esp_metadata.json
+
+__pycache__/
+*.pyc
+
+.previews_cache/
+.cache/
+
+Thumbs.db
+.DS_Store
+# Local preview images are optional and can be very large.
+previews/*
+!previews/.gitkeep
+!previews/placeholder.png
+
+
