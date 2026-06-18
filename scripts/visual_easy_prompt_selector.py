@@ -6,6 +6,8 @@ import json
 import re
 import base64
 import mimetypes
+import shutil
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +27,7 @@ CONFIG_PATH = BASE_DIR / "config.json"
 METADATA_PATH = BASE_DIR / "visual_eps_metadata.json"
 PREVIEWS_DIR = BASE_DIR / "previews"
 CUSTOM_PREVIEWS_DIR = PREVIEWS_DIR / "custom"
+AUTO_REMOVED_PREVIEWS_DIR = PREVIEWS_DIR / "_auto_removed"
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 IMAGE_MAPPING_NAMES = ("image_mapping.json",)
 
@@ -43,6 +46,7 @@ DEFAULT_CONFIG = {
     "avoid_duplicate_insert": True,
     "thumbnail_size": 160,
     "auto_insert_negative": False,
+    "auto_remove_orphaned_mapped_previews": True,
 }
 
 
@@ -111,6 +115,22 @@ def yaml_files(eps_paths: list[str]) -> list[Path]:
     return files
 
 
+def config_eps_paths(config: dict[str, Any]) -> list[str]:
+    eps_paths = config.get("eps_paths", config.get("esp_paths", []))
+    if not isinstance(eps_paths, list):
+        return []
+    resolved: list[str] = []
+    for raw_path in eps_paths:
+        path_text = str(raw_path).strip()
+        if not path_text:
+            continue
+        path = Path(path_text)
+        if not path.is_absolute():
+            path = BASE_DIR / path
+        resolved.append(str(path))
+    return resolved
+
+
 def is_scalar(value: Any) -> bool:
     return isinstance(value, (str, int, float, bool)) or value is None
 
@@ -161,11 +181,7 @@ def walk_yaml(node: Any, path_parts: list[str], source_file: str, items: list[di
 
 def load_eps_items(config: dict[str, Any]) -> list[dict[str, str]]:
     items: list[dict[str, str]] = []
-    eps_paths = config.get("eps_paths", [])
-    if not isinstance(eps_paths, list):
-        eps_paths = []
-
-    for path in yaml_files([str(p) for p in eps_paths]):
+    for path in yaml_files(config_eps_paths(config)):
         try:
             data = yaml.safe_load(path.read_text(encoding="utf-8-sig"))
             if data is None:
@@ -178,6 +194,151 @@ def load_eps_items(config: dict[str, Any]) -> list[dict[str, str]]:
             log(f"skipped YAML {path}: {exc}")
 
     return stable_ids(items)
+
+
+def path_is_inside(path: Path, parent: Path) -> bool:
+    try:
+        path.resolve().relative_to(parent.resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def resolve_mapped_preview(mapping_path: Path, filename: str) -> Path | None:
+    filename_text = str(filename or "").strip()
+    if not filename_text:
+        return None
+    image_path = (mapping_path.parent / filename_text).resolve()
+    if image_path.suffix.lower() not in IMAGE_EXTENSIONS:
+        return None
+    if not path_is_inside(image_path, PREVIEWS_DIR):
+        return None
+    return image_path
+
+
+def is_protected_preview_path(path: Path) -> bool:
+    try:
+        resolved = path.resolve()
+        if not resolved.exists():
+            return True
+        if not path_is_inside(resolved, PREVIEWS_DIR):
+            return True
+        relative = resolved.relative_to(PREVIEWS_DIR.resolve())
+        parts = set(relative.parts)
+        if "custom" in parts or "_auto_removed" in parts or "_original_backup" in parts:
+            return True
+        if resolved.name == "placeholder.png":
+            return True
+        return False
+    except Exception:
+        return True
+
+
+def unique_path(path: Path) -> Path:
+    if not path.exists():
+        return path
+    stem = path.stem
+    suffix = path.suffix
+    parent = path.parent
+    counter = 2
+    while True:
+        candidate = parent / f"{stem}_{counter}{suffix}"
+        if not candidate.exists():
+            return candidate
+        counter += 1
+
+
+def mapped_preview_files(mapping_path: Path, mapping: dict[str, Any], prompts: set[str]) -> set[Path]:
+    files: set[Path] = set()
+    for prompt, filename in mapping.items():
+        if str(prompt).strip() not in prompts:
+            continue
+        image_path = resolve_mapped_preview(mapping_path, str(filename))
+        if image_path and image_path.exists():
+            files.add(image_path.resolve())
+    return files
+
+
+def metadata_preview_files(metadata: dict[str, Any]) -> set[Path]:
+    files: set[Path] = set()
+    for entry in metadata.values():
+        if not isinstance(entry, dict):
+            continue
+        image_text = str(entry.get("image") or "").strip()
+        if not image_text:
+            continue
+        image_path = (BASE_DIR / image_text).resolve()
+        if image_path.suffix.lower() in IMAGE_EXTENSIONS and image_path.exists() and path_is_inside(image_path, PREVIEWS_DIR):
+            files.add(image_path)
+    return files
+
+
+def cleanup_orphaned_mapped_previews(raw_items: list[dict[str, str]], metadata: dict[str, Any], config: dict[str, Any]) -> None:
+    if not config.get("auto_remove_orphaned_mapped_previews", True):
+        return
+
+    active_prompts = {str(item.get("prompt", "")).strip() for item in raw_items if str(item.get("prompt", "")).strip()}
+    if not active_prompts:
+        log("auto cleanup skipped because no EPS prompts were loaded")
+        return
+
+    backup_root = AUTO_REMOVED_PREVIEWS_DIR / datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_created = False
+    removed_count = 0
+    changed_mappings = 0
+
+    try:
+        protected_files = metadata_preview_files(metadata)
+        mapping_payloads: list[tuple[Path, dict[str, Any]]] = []
+        for mapping_name in IMAGE_MAPPING_NAMES:
+            for mapping_path in PREVIEWS_DIR.rglob(mapping_name):
+                if not path_is_inside(mapping_path, PREVIEWS_DIR):
+                    continue
+                relative_parts = set(mapping_path.relative_to(PREVIEWS_DIR).parts)
+                if "_auto_removed" in relative_parts or "_original_backup" in relative_parts:
+                    continue
+                try:
+                    loaded = json.loads(mapping_path.read_text(encoding="utf-8-sig"))
+                except Exception as exc:
+                    log(f"failed to load image mapping for cleanup {mapping_path}: {exc}")
+                    continue
+                if isinstance(loaded, dict):
+                    mapping_payloads.append((mapping_path, loaded))
+                    protected_files.update(mapped_preview_files(mapping_path, loaded, active_prompts))
+
+        for mapping_path, mapping in mapping_payloads:
+            cleaned: dict[str, Any] = {}
+            mapping_changed = False
+
+            for prompt, filename in mapping.items():
+                prompt_key = str(prompt).strip()
+                if not prompt_key or prompt_key in active_prompts:
+                    cleaned[prompt] = filename
+                    continue
+
+                image_path = resolve_mapped_preview(mapping_path, str(filename))
+                if image_path and image_path.exists() and image_path.resolve() not in protected_files and not is_protected_preview_path(image_path):
+                    relative_image = image_path.resolve().relative_to(PREVIEWS_DIR.resolve())
+                    target = unique_path(backup_root / relative_image)
+                    if not backup_created:
+                        backup_root.mkdir(parents=True, exist_ok=True)
+                        backup_created = True
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.move(str(image_path), str(target))
+                    removed_count += 1
+                mapping_changed = True
+
+            if mapping_changed:
+                mapping_path.write_text(json.dumps(cleaned, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+                changed_mappings += 1
+
+        if removed_count or changed_mappings:
+            log(
+                "auto removed orphaned mapped previews: "
+                f"{removed_count} image(s), {changed_mappings} mapping file(s); backup={backup_root if backup_created else 'none'}"
+            )
+    except Exception as exc:
+        log(f"auto cleanup of orphaned mapped previews failed: {exc}")
 
 
 def stable_ids(items: list[dict[str, str]]) -> list[dict[str, str]]:
@@ -311,9 +472,10 @@ def search_blob(item: dict[str, Any]) -> str:
 def load_visual_eps_cards() -> tuple[list[dict[str, Any]], dict[str, Any]]:
     config = load_config()
     metadata = load_metadata()
+    raw_items = load_eps_items(config)
+    cleanup_orphaned_mapped_previews(raw_items, metadata, config)
     image_index = preview_image_index()
     image_mapping = load_image_mapping()
-    raw_items = load_eps_items(config)
     return [merge_metadata(item, metadata, image_index, image_mapping) for item in raw_items], config
 
 

@@ -19,6 +19,7 @@ This is still a test release. Please report issues with your WebUI type, browser
 - Supports text search, category filtering, tag filtering, AND/OR search, and image/no-image filtering.
 - Supports optional preview images.
 - Stores local display names, tags, notes, prompt additions, and preview-image links in this extension folder.
+- Automatically moves mapped preview images for deleted EPS prompts into a local backup folder.
 
 ## Installation
 
@@ -142,6 +143,23 @@ previews/imported/
 ```
 
 If a prompt has no preview image, Visual EPS will show a normal card without a custom preview.
+
+When a prompt is removed from the Easy Prompt Selector YAML files, Visual EPS also removes the matching entry from `image_mapping.json`. If that mapping pointed to a preview image that is not used by any remaining prompt or metadata entry, the image is moved to:
+
+```text
+previews/_auto_removed/
+```
+
+This keeps deleted EPS folders from leaving unused Visual EPS images behind. The files are moved, not permanently deleted, so they can be restored if needed.
+
+To disable this behavior, set this in `config.json`:
+
+```json
+{
+  "auto_remove_orphaned_mapped_previews": false
+}
+```
+
 ### WebP preview resize tool
 
 A helper tool is included at:
@@ -181,6 +199,7 @@ Visual EPS writes only inside its own extension folder:
 - `config.json`
 - `visual_esp_metadata.json`
 - `previews/custom/`
+- `previews/_auto_removed/`
 
 It does not modify:
 
@@ -216,6 +235,7 @@ Restart WebUI and hard-refresh the browser with `Ctrl + F5`.
 
 - Synchronized Visual EPS panel search with the native Extra Networks search so searches can target the full EPS tree.
 - Added lazy preview image loading to reduce browser work on large visual prompt libraries.
+- Added automatic cleanup for preview images mapped to EPS prompts that no longer exist.
 - Removed repeated background rebinding that could make reForge feel heavier over time.
 - Added a WebP preview resize tool for converting large PNG/JPG reference images into small thumbnails.
 - Added reference updates for `image_mapping.json`, metadata, and YAML image paths when using the resize tool.

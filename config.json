@@ -12,5 +12,6 @@
   "enable_multi_select": false,
   "avoid_duplicate_insert": true,
   "thumbnail_size": 160,
-  "auto_insert_negative": false
+  "auto_insert_negative": false,
+  "auto_remove_orphaned_mapped_previews": true
 }
