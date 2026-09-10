@@ -30,6 +30,7 @@ CUSTOM_PREVIEWS_DIR = PREVIEWS_DIR / "custom"
 AUTO_REMOVED_PREVIEWS_DIR = PREVIEWS_DIR / "_auto_removed"
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
 IMAGE_MAPPING_NAMES = ("image_mapping.json",)
+FUZZY_PREVIEW_SCAN_LIMIT = 2000
 
 DEFAULT_CONFIG = {
     "eps_paths": [
@@ -40,6 +41,7 @@ DEFAULT_CONFIG = {
     "enable_txt2img": True,
     "enable_img2img": True,
     "enable_category_tree": True,
+    "max_tree_leaf_items": 5000,
     "enable_tag_filter": True,
     "enable_image_preview": True,
     "enable_multi_select": True,
@@ -359,6 +361,14 @@ def normalize_key(value: str) -> str:
     return re.sub(r"_+", "_", value).strip("_")
 
 
+def natural_sort_key(value: Any) -> tuple[tuple[int, Any], ...]:
+    """Return a natural-sort key without treating non-ASCII numerals as int()."""
+    return tuple(
+        (1, int(part)) if part.isascii() and part.isdigit() else (0, part.casefold())
+        for part in re.split(r"([0-9]+)", str(value))
+    )
+
+
 def safe_filename(value: str, fallback: str = "visual_eps") -> str:
     normalized = normalize_key(value)
     return normalized[:120] or fallback
@@ -422,6 +432,11 @@ def find_preview_image(item: dict[str, str], image_index: dict[str, str]) -> str
     for candidate in normalized_candidates:
         if candidate in image_index:
             return image_index[candidate]
+    # A fuzzy all-pairs scan becomes prohibitively expensive for large EPS and
+    # preview libraries. Explicit image mappings and exact filename matches above
+    # remain available regardless of library size.
+    if len(image_index) > FUZZY_PREVIEW_SCAN_LIMIT:
+        return ""
     for key, rel in image_index.items():
         if any(candidate and (candidate in key or key in candidate) for candidate in normalized_candidates):
             return rel
@@ -600,6 +615,12 @@ class ExtraNetworksPageVisualEPS(ui_extra_networks.ExtraNetworksPage):
         return rendered
 
     def create_tree_view_html(self, tabname: str) -> str:
+        try:
+            max_tree_leaf_items = int(self._config.get("max_tree_leaf_items", 5000))
+        except (TypeError, ValueError):
+            max_tree_leaf_items = 5000
+        include_leaf_items = max_tree_leaf_items < 0 or len(self.items) <= max_tree_leaf_items
+
         def tree_button(
             *,
             label: str,
@@ -686,10 +707,10 @@ class ExtraNetworksPageVisualEPS(ui_extra_networks.ExtraNetworksPage):
 
         def render_node(node: dict[str, Any], path_parts: list[str]) -> str:
             chunks: list[str] = []
-            for name, child in sorted(node["dirs"].items(), key=lambda pair: shared.natural_sort_key(pair[0])):
+            for name, child in sorted(node["dirs"].items(), key=lambda pair: natural_sort_key(pair[0])):
                 child_path = "/".join(path_parts + [name])
                 children_html = render_node(child, path_parts + [name])
-                if not children_html:
+                if not children_html and not child["items"]:
                     continue
                 parent = tree_button(
                     label=name,
@@ -698,13 +719,20 @@ class ExtraNetworksPageVisualEPS(ui_extra_networks.ExtraNetworksPage):
                     search_terms=html.escape(child_path),
                     leading="",
                 )
-                chunks.append(
-                    "<li class='tree-list-item tree-list-item--has-subitem' data-tree-entry-type='dir'>"
-                    f"{parent}<ul class='tree-list tree-list--subgroup' hidden>{children_html}</ul>"
-                    "</li>"
-                )
-            for item in sorted(node["items"], key=lambda value: shared.natural_sort_key(str(value.get("name") or ""))):
-                chunks.append(file_item(item))
+                if children_html:
+                    chunks.append(
+                        "<li class='tree-list-item tree-list-item--has-subitem' data-tree-entry-type='dir'>"
+                        f"{parent}<ul class='tree-list tree-list--subgroup' hidden>{children_html}</ul>"
+                        "</li>"
+                    )
+                else:
+                    chunks.append(
+                        "<li class='tree-list-item tree-list-item--subitem' data-tree-entry-type='dir'>"
+                        f"{parent}</li>"
+                    )
+            if include_leaf_items:
+                for item in sorted(node["items"], key=lambda value: natural_sort_key(value.get("name") or "")):
+                    chunks.append(file_item(item))
             return "".join(chunks)
 
         try:
@@ -717,7 +745,7 @@ class ExtraNetworksPageVisualEPS(ui_extra_networks.ExtraNetworksPage):
             return "<ul class='tree-list tree-list--tree veps-source-tree'></ul>"
 
     def create_dirs_view_html(self, tabname: str) -> str:
-        sources = sorted({str(item.get("veps_source") or "unknown.yml") for item in self.items.values()}, key=shared.natural_sort_key)
+        sources = sorted({str(item.get("veps_source") or "unknown.yml") for item in self.items.values()}, key=natural_sort_key)
         return "".join(
             f"""
             <button class='lg secondary gradio-button custom-button' onclick='extraNetworksSearchButton("{tabname}", "{self.extra_networks_tabname}", event)'>

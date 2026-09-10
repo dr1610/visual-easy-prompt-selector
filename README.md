@@ -6,7 +6,7 @@ The extension reads Easy Prompt Selector files in read-only mode. It does not ed
 
 ## Status
 
-Current test release: `v0.1-test3`
+Current test release: `v0.1-test4`
 
 This is still a test release. Please report issues with your WebUI type, browser, and a short description of what happened.
 
@@ -230,6 +230,13 @@ This usually means the extension was installed manually from ZIP. Install it fro
 Restart WebUI and hard-refresh the browser with `Ctrl + F5`.
 
 ## Release Notes
+
+### v0.1-test4
+
+- Fixed blank Visual EPS trees when EPS labels contain Unicode numerals such as `¹` or `²`.
+- Added a safe extension-local natural sort key that only converts ASCII digit runs to integers.
+- Large libraries now render a category-only tree above 5,000 entries instead of duplicating every prompt as a tree leaf. Set `max_tree_leaf_items` in `config.json` to change the threshold; use `-1` to always include prompt leaves.
+- Disabled fuzzy preview filename scans when more than 2,000 preview images are indexed. Explicit `image_mapping.json` entries and exact filename matches still work at any size.
 
 ### v0.1-test3
 
