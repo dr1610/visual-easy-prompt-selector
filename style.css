@@ -155,6 +155,33 @@
   align-items: center;
 }
 
+.veps-load-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.veps-load-button {
+  min-height: 32px;
+  border: 1px solid rgba(125, 180, 255, 0.62);
+  border-radius: 6px;
+  padding: 4px 12px;
+  background: var(--button-primary-background-fill, #2563eb);
+  color: var(--button-primary-text-color, #fff);
+  cursor: pointer;
+}
+
+.veps-load-button:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.veps-load-status {
+  color: var(--veps-muted, rgba(220, 220, 220, 0.82));
+  font-size: 12px;
+}
+
 .veps-category-tree {
   min-width: 220px;
 }

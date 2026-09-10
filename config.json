@@ -7,6 +7,7 @@
   "enable_txt2img": true,
   "enable_img2img": true,
   "enable_category_tree": true,
+  "load_mode": "on_tab_open",
   "max_tree_leaf_items": 5000,
   "enable_tag_filter": true,
   "enable_image_preview": true,

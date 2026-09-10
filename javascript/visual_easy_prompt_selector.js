@@ -67,7 +67,7 @@
   }
 
   function visualEspPages() {
-    return qa("[id$='_visual_esp'], [id$='_visual_eps']").filter((page) => q(".veps-extra-card", page));
+    return qa("[id$='_visual_esp'], [id$='_visual_eps']");
   }
 
   function cardTitle(card) {
@@ -122,6 +122,10 @@
     return qa(".veps-extra-card", page);
   }
 
+  function loadedPromptCount(page) {
+    return qa(".card.veps-extra-card", page).length;
+  }
+
 
   function nativeExtraSearchForPage(page) {
     return page && page.id ? document.getElementById(`${page.id}_extra_search`) : null;
@@ -133,6 +137,103 @@
     nativeSearch.value = value;
     nativeSearch.dispatchEvent(new Event("input", { bubbles: true }));
     nativeSearch.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  function updateLoadControls(page, { loaded = false, loading = false, message = "" } = {}) {
+    const button = q(".veps-load-button", page);
+    const status = q(".veps-load-status", page);
+    if (button) {
+      button.disabled = loading;
+      button.textContent = loading ? "Loading Visual EPS..." : loaded ? "Reload Visual EPS" : "Load Visual EPS";
+    }
+    if (status) status.textContent = message;
+  }
+
+  function syncToolbarTags(page) {
+    const tagList = q(".veps-tag-list", page);
+    if (!tagList) return;
+    const tags = uniqueSorted(
+      pageCards(page).flatMap((card) =>
+        (card.dataset.vepsTags || "")
+          .split(",")
+          .map((tag) => tag.trim())
+          .filter(Boolean)
+      )
+    );
+    tagList.innerHTML = "";
+    for (const tag of tags) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = `#${tag}`;
+      button.dataset.tag = tag;
+      tagList.appendChild(button);
+    }
+  }
+
+  async function getLoadStatus() {
+    const response = await fetch("/visual-eps/status");
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Failed to read Visual EPS status");
+    return data;
+  }
+
+  function waitForVisualEspRefresh(page, expectedRevision) {
+    let attempts = 0;
+    const poll = () => {
+      const tree = q(".veps-source-tree", page);
+      const refreshComplete = tree && tree.dataset.vepsRevision === String(expectedRevision);
+      if (refreshComplete) {
+        page.dataset.vepsLoading = "0";
+        syncToolbarTags(page);
+        bindCards();
+        updateLoadControls(page, {
+          loaded: true,
+          message: `${loadedPromptCount(page)} prompts loaded`,
+        });
+        return;
+      }
+      attempts += 1;
+      if (attempts >= 600) {
+        page.dataset.vepsLoading = "0";
+        updateLoadControls(page, { loaded: false, message: "Load timed out. Try Load Visual EPS again." });
+        return;
+      }
+      window.setTimeout(poll, 500);
+    };
+    window.setTimeout(poll, 500);
+  }
+
+  async function requestVisualEspLoad(page, force = false) {
+    if (!page || page.dataset.vepsLoading === "1") return;
+    page.dataset.vepsLoading = "1";
+    updateLoadControls(page, { loading: true, message: "Reading EPS data after WebUI startup..." });
+    try {
+      const response = await fetch("/visual-eps/load", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ force }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Failed to start Visual EPS load");
+      const refreshButton = document.getElementById(`${page.id}_extra_refresh_internal`);
+      if (!refreshButton) throw new Error("Visual EPS refresh control is unavailable");
+      refreshButton.click();
+      waitForVisualEspRefresh(page, data.revision);
+    } catch (error) {
+      page.dataset.vepsLoading = "0";
+      updateLoadControls(page, { loaded: false, message: error.message || String(error) });
+    }
+  }
+
+  async function maybeLoadVisualEspOnOpen(page) {
+    if (!page || pageCards(page).length || page.dataset.vepsLoading === "1") return;
+    try {
+      const status = await getLoadStatus();
+      updateLoadControls(page, { loaded: status.loaded, message: status.loaded ? "Ready to display" : "Not loaded" });
+      if (status.load_mode === "on_tab_open") await requestVisualEspLoad(page, false);
+    } catch (error) {
+      updateLoadControls(page, { loaded: false, message: error.message || String(error) });
+    }
   }
   function visualEspTreeClickGuard(event) {
     const target = event.target instanceof Element ? event.target : null;
@@ -156,22 +257,19 @@
   }
 
   function buildToolbar(page) {
-    if (page.dataset.vepsToolbarBound === "1") return;
+    if (page.dataset.vepsToolbarBound === "1") {
+      syncToolbarTags(page);
+      return;
+    }
     page.dataset.vepsToolbarBound = "1";
-
-    const cards = pageCards(page);
-    const tags = uniqueSorted(
-      cards.flatMap((card) =>
-        (card.dataset.vepsTags || "")
-          .split(",")
-          .map((tag) => tag.trim())
-          .filter(Boolean)
-      )
-    );
 
     const toolbar = document.createElement("div");
     toolbar.className = "veps-extra-toolbar";
     toolbar.innerHTML = `
+      <div class="veps-load-row">
+        <button type="button" class="veps-load-button">Load Visual EPS</button>
+        <span class="veps-load-status">Checking load mode...</span>
+      </div>
       <div class="veps-filter-row">
         <input class="veps-local-search" type="search" placeholder="Visual EPS search">
         <select class="veps-search-mode" title="Search mode">
@@ -194,16 +292,12 @@
 
     protectToolbarControls(toolbar, ".veps-local-search, .veps-search-mode, .veps-image-select");
 
-    const tagList = q(".veps-tag-list", toolbar);
-    for (const tag of tags) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.textContent = `#${tag}`;
-      button.dataset.tag = tag;
-      tagList.appendChild(button);
-    }
-
     toolbar.addEventListener("click", (event) => {
+      if (event.target.closest(".veps-load-button")) {
+        event.preventDefault();
+        requestVisualEspLoad(page, true);
+        return;
+      }
       const tagButton = event.target.closest("[data-tag]");
 
       if (tagButton) {
@@ -250,6 +344,16 @@
     });
 
     page.prepend(toolbar);
+    syncToolbarTags(page);
+    getLoadStatus()
+      .then((status) => {
+        if (page.dataset.vepsLoading === "1") return;
+        updateLoadControls(page, {
+          loaded: status.loaded || pageCards(page).length > 0,
+          message: pageCards(page).length > 0 ? `${loadedPromptCount(page)} prompts loaded` : status.loaded ? "Ready to display" : "Not loaded",
+        });
+      })
+      .catch((error) => updateLoadControls(page, { loaded: false, message: error.message || String(error) }));
     applyFilters();
   }
 
@@ -382,8 +486,8 @@
     return data;
   }
 
-  function refreshVisualEspPages() {
-    for (const page of visualEspPages()) {
+  function refreshVisualEspPages(targetPage = null) {
+    for (const page of targetPage ? [targetPage] : visualEspPages()) {
       const button = document.getElementById(`${page.id}_extra_refresh_internal`);
       if (button) button.click();
     }
@@ -444,7 +548,7 @@
           image_name: imagePayload.name,
         });
         status.textContent = "Saved. Refreshing cards...";
-        refreshVisualEspPages();
+        refreshVisualEspPages(pageForCard(card));
         setTimeout(closeModal, 600);
       } catch (error) {
         status.textContent = error.message || String(error);
@@ -503,12 +607,25 @@
   function bindOnVisualEspInteraction(event) {
     const target = event.target instanceof Element ? event.target : null;
     if (!target) return;
+    const tabButton = target.closest("button[id$='_visual_esp-button'], button[id$='_visual_eps-button']");
+    if (tabButton) {
+      const page = document.getElementById(tabButton.id.replace(/-button$/, ""));
+      window.setTimeout(() => maybeLoadVisualEspOnOpen(page), 0);
+    }
     if (!target.closest("[id$='_visual_esp'], [id$='_visual_eps'], button, .tab-nav, .tabs")) return;
     window.setTimeout(bindCards, 80);
     window.setTimeout(bindCards, 350);
   }
   document.addEventListener("DOMContentLoaded", bindCards);
-  document.addEventListener("gradio:loaded", bindCards);
+  document.addEventListener("gradio:loaded", () => {
+    bindCards();
+    for (const page of visualEspPages()) {
+      const tabButton = document.getElementById(`${page.id}-button`);
+      if (tabButton && tabButton.getAttribute("aria-selected") === "true") {
+        maybeLoadVisualEspOnOpen(page);
+      }
+    }
+  });
   document.addEventListener("click", bindOnVisualEspInteraction, true);
   document.addEventListener("click", visualEspTreeClickGuard, true);
 })();

@@ -6,7 +6,7 @@ The extension reads Easy Prompt Selector files in read-only mode. It does not ed
 
 ## Status
 
-Current test release: `v0.1-test4`
+Current test release: `v0.1-test5`
 
 This is still a test release. Please report issues with your WebUI type, browser, and a short description of what happened.
 
@@ -113,6 +113,24 @@ To set a custom folder, edit `config.json`:
 ```
 
 Relative paths are resolved from the Visual EPS extension folder.
+
+## Load Timing
+
+Visual EPS does not need to scan a large prompt library during WebUI startup. The default mode is:
+
+```json
+{
+  "load_mode": "on_tab_open"
+}
+```
+
+Available modes:
+
+- `on_tab_open`: load the library the first time a Visual EPS tab is opened. This is the default.
+- `manual`: wait until the user presses `Load Visual EPS`.
+- `startup`: preserve the original behavior and load with the other Extra Networks pages.
+
+The `Load Visual EPS` / `Reload Visual EPS` button remains available in every mode, so the library can be refreshed at any time after WebUI has settled.
 
 ## Preview Images
 
@@ -230,6 +248,13 @@ This usually means the extension was installed manually from ZIP. Install it fro
 Restart WebUI and hard-refresh the browser with `Ctrl + F5`.
 
 ## Release Notes
+
+### v0.1-test5
+
+- Added deferred loading so large EPS libraries no longer scan during WebUI startup.
+- Added `manual`, `on_tab_open`, and `startup` load modes; `on_tab_open` is now the default.
+- Added persistent `Load Visual EPS` / `Reload Visual EPS` controls with load status and prompt count.
+- Refreshes only the active Visual EPS page after prompt metadata edits.
 
 ### v0.1-test4
 

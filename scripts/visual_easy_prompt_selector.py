@@ -41,6 +41,7 @@ DEFAULT_CONFIG = {
     "enable_txt2img": True,
     "enable_img2img": True,
     "enable_category_tree": True,
+    "load_mode": "on_tab_open",
     "max_tree_leaf_items": 5000,
     "enable_tag_filter": True,
     "enable_image_preview": True,
@@ -551,6 +552,24 @@ class ExtraNetworksPageVisualEPS(ui_extra_networks.ExtraNetworksPage):
         super().__init__("Visual EPS")
         self.allow_negative_prompt = False
         self._config = load_config()
+        self._loaded = self.load_mode() == "startup"
+        self._load_revision = 0
+
+    def load_mode(self) -> str:
+        mode = str(self._config.get("load_mode", "on_tab_open")).strip().lower()
+        return mode if mode in {"manual", "on_tab_open", "startup"} else "on_tab_open"
+
+    def request_load(self) -> None:
+        self._config = load_config()
+        self._loaded = True
+        self._load_revision += 1
+
+    def load_status(self) -> dict[str, Any]:
+        self._config = load_config()
+        mode = self.load_mode()
+        if mode == "startup":
+            self._loaded = True
+        return {"loaded": self._loaded, "load_mode": mode, "revision": self._load_revision}
 
     def refresh(self):
         self._config = load_config()
@@ -739,10 +758,16 @@ class ExtraNetworksPageVisualEPS(ui_extra_networks.ExtraNetworksPage):
             root = new_node()
             for item in self.items.values():
                 add_to_tree(root, item)
-            return f"<ul class='tree-list tree-list--tree veps-source-tree'>{render_node(root, [])}</ul>"
+            return (
+                "<ul class='tree-list tree-list--tree veps-source-tree' "
+                f"data-veps-revision='{self._load_revision}'>{render_node(root, [])}</ul>"
+            )
         except Exception as exc:
             log(f"Extra Networks tree view failed: {exc}")
-            return "<ul class='tree-list tree-list--tree veps-source-tree'></ul>"
+            return (
+                "<ul class='tree-list tree-list--tree veps-source-tree' "
+                f"data-veps-revision='{self._load_revision}'></ul>"
+            )
 
     def create_dirs_view_html(self, tabname: str) -> str:
         sources = sorted({str(item.get("veps_source") or "unknown.yml") for item in self.items.values()}, key=natural_sort_key)
@@ -758,6 +783,10 @@ class ExtraNetworksPageVisualEPS(ui_extra_networks.ExtraNetworksPage):
     def list_items(self):
         try:
             self._config = load_config()
+            if self.load_mode() == "startup":
+                self._loaded = True
+            if not self._loaded:
+                return
             items, _ = load_visual_eps_cards()
             for index, item in enumerate(items):
                 yield self.create_item(item, index)
@@ -768,16 +797,43 @@ class ExtraNetworksPageVisualEPS(ui_extra_networks.ExtraNetworksPage):
         return [str(PREVIEWS_DIR)]
 
 
+VISUAL_EPS_PAGE: ExtraNetworksPageVisualEPS | None = None
+
+
 def on_before_ui():
+    global VISUAL_EPS_PAGE
     try:
-        if not any(getattr(page, "name", "") == "visual eps" for page in ui_extra_networks.extra_pages):
-            ui_extra_networks.register_page(ExtraNetworksPageVisualEPS())
+        existing = next((page for page in ui_extra_networks.extra_pages if getattr(page, "name", "") == "visual eps"), None)
+        if existing is None:
+            VISUAL_EPS_PAGE = ExtraNetworksPageVisualEPS()
+            ui_extra_networks.register_page(VISUAL_EPS_PAGE)
             log("registered Visual EPS Extra Networks page")
+        elif isinstance(existing, ExtraNetworksPageVisualEPS):
+            VISUAL_EPS_PAGE = existing
     except Exception as exc:
         log(f"failed to register Extra Networks page: {exc}")
 
 
 script_callbacks.on_before_ui(on_before_ui)
+
+
+def api_load_status(_request: Request):
+    if VISUAL_EPS_PAGE is None:
+        return JSONReply({"error": "Visual EPS page is not registered"}, status_code=503)
+    return JSONReply(VISUAL_EPS_PAGE.load_status())
+
+
+async def api_request_load(request: Request):
+    if VISUAL_EPS_PAGE is None:
+        return JSONReply({"error": "Visual EPS page is not registered"}, status_code=503)
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+    VISUAL_EPS_PAGE.request_load()
+    status = VISUAL_EPS_PAGE.load_status()
+    status["force"] = bool(payload.get("force")) if isinstance(payload, dict) else False
+    return JSONReply(status)
 
 
 def api_get_item(request: Request):
@@ -823,6 +879,8 @@ async def api_save_item(request: Request):
 
 def on_app_started(_demo, app):
     try:
+        app.add_api_route("/visual-eps/status", api_load_status, methods=["GET"])
+        app.add_api_route("/visual-eps/load", api_request_load, methods=["POST"])
         app.add_api_route("/visual-eps/item", api_get_item, methods=["GET"])
         app.add_api_route("/visual-eps/save", api_save_item, methods=["POST"])
         log("registered Visual EPS API routes")
